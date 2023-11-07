@@ -1,4 +1,6 @@
 ### Simple Rust future executor with linux epoll
+[![Rust](https://github.com/vitdevelop/future_epoll/actions/workflows/rust.yml/badge.svg?branch=master)](https://github.com/vitdevelop/future_epoll/actions/workflows/rust.yml)
+
 Futures implemented
 
 Time
