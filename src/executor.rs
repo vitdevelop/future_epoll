@@ -17,7 +17,7 @@ pub(crate) trait Task {
 
 pub(crate) struct Executor<'a> {
     task_counter: u64,
-    tasks: RefCell<HashMap<u64, LocalBoxFuture<'a, ()>>>,
+    tasks: RefCell<HashMap<u64, LocalBoxFuture<'a, Result<()>>>>,
     ready_queue: RefCell<VecDeque<u64>>,
     pub(crate) current_task_id: RefCell<u64>,
 }
@@ -46,7 +46,7 @@ impl Executor<'_> {
         }
     }
 
-    pub(crate) fn spawn(future: impl Future<Output=()> + 'static) {
+    pub(crate) fn spawn(future: impl Future<Output=Result<()>> + 'static) {
         let task = future.boxed_local();
         CONTEXT.with(|x| {
             let executor = &x.executor;

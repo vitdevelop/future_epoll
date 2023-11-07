@@ -23,7 +23,7 @@ fn create_timer_fd(seconds: i64) -> crate::Result<TimerFuture> {
 
     CONTEXT.with(|x| {
         let task_id = x.executor.current_task_id.clone().into_inner();
-        x.epoll.add(&fd, task_id, EventFlags::IN | EventFlags::ONESHOT)
+        x.epoll.add_task(&fd, task_id, EventFlags::IN | EventFlags::ONESHOT)
     })?;
 
     Ok(TimerFuture {
@@ -47,7 +47,10 @@ impl Future for TimerFuture {
         });
 
         if ready {
-            CONTEXT.with(|x| x.epoll.remove(&self.fd))?;
+            CONTEXT.with(|x| {
+                let task_id = x.executor.current_task_id.clone().into_inner();
+                return x.epoll.remove_task(&self.fd, task_id);
+            })?;
             Poll::Ready(Ok(()))
         } else {
             Poll::Pending
