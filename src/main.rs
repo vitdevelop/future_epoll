@@ -1,26 +1,38 @@
-use std::io::Seek;
+use log::{info, LevelFilter};
 use crate::executor::Executor;
+use crate::timer::wait;
 
 mod executor;
-mod task;
+mod epoll;
+mod timer;
+mod context;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Sync + Send>>;
 
-fn main() {
-    let executor = Executor::new();
+fn main() -> Result<()> {
+    env_logger::builder()
+        .filter_level(LevelFilter::Debug)
+        .init();
 
-    executor.spawn(async {
+    Executor::spawn(async {
         print_hello().await
     });
 
-    executor.run();
+    Executor::run()?;
+    Ok(())
 }
 
 async fn print_hello() {
-    print!("Hello");
+    info!("{}", format!("Hello"));
     print_world().await
 }
 
 async fn print_world() {
-    println!(" World")
+    println!(" World");
+
+    info!("Waiting");
+    let seconds = 2;
+    wait(seconds).await;
+
+    info!("Elapsed {} sec", seconds);
 }

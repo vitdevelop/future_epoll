@@ -8,5 +8,5 @@ edition = "2021"
 [dependencies]
 env_logger = "0.10.0"
 log = "0.4.20"
-rustix = { version = "0.38.21", features = ["net", "libc_errno"] }
+rustix = { version = "0.38.21", features = ["net", "libc_errno", "event", "time"] }
 futures = "0.3.29"
