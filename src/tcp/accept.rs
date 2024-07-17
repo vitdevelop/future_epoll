@@ -11,6 +11,7 @@ use crate::Result;
 use crate::tcp::{TcpClient, TcpServer};
 
 pub(crate) struct TcpAcceptFuture<'a> {
+    // using ref because fd.try_clone() increment fd
     fd: &'a OwnedFd,
 }
 
@@ -18,7 +19,6 @@ impl TcpAcceptFuture<'_> {
     pub(super) fn new(fd: &OwnedFd) -> Result<TcpAcceptFuture> {
         Ok(TcpAcceptFuture {
             fd
-            // fd: fd.try_clone()? // TODO: increment fd
         })
     }
 }
@@ -29,12 +29,9 @@ impl Future for TcpAcceptFuture<'_> {
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
         return match acceptfrom_with(&self.fd, SocketFlags::NONBLOCK) {
             Ok((client_fd, client_addr)) => {
-                let addr = match client_addr {
-                    Some(addr) => addr,
-                    None => {
-                        SocketAddrAny::from(SocketAddr::new(IpAddr::from([127, 0, 0, 1]), 0))
-                    }
-                };
+                let addr = client_addr.unwrap_or_else(|| {
+                    SocketAddrAny::from(SocketAddr::new(IpAddr::from([127, 0, 0, 1]), 0))
+                });
 
                 CONTEXT.with(|x| x.epoll.remove(&self.fd))?;
                 return Poll::Ready(Ok((client_fd, addr)));
@@ -42,8 +39,8 @@ impl Future for TcpAcceptFuture<'_> {
             Err(e) => {
                 if e == io::Errno::AGAIN || e == io::Errno::WOULDBLOCK {
                     CONTEXT.with(|x| {
-                        let task_id = x.executor.current_task_id.clone().into_inner();
-                        x.epoll.wait_task(&self.fd, task_id)
+                        let task = x.executor.get_current_task();
+                        x.epoll.wait_task(&self.fd, task)
                     })?;
 
                     Poll::Pending
@@ -58,6 +55,7 @@ impl Future for TcpAcceptFuture<'_> {
 impl TcpServer {
     pub(crate) async fn accept(&self) -> Result<TcpClient> {
         let (client_fd, addr) = TcpAcceptFuture::new(&self.fd)?.await?;
+
         CONTEXT.with(|x| x.epoll.add(&client_fd, EventFlags::empty()))?;
         Ok(TcpClient {
             fd: client_fd,

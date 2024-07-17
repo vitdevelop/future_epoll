@@ -35,8 +35,8 @@ impl Future for TcpWriteFuture<'_, '_> {
             Err(e) => {
                 if e == io::Errno::AGAIN || e == io::Errno::WOULDBLOCK {
                     CONTEXT.with(|x| {
-                        let task_id = x.executor.current_task_id.clone().into_inner();
-                        x.epoll.modify_task(&self.fd, task_id, EventFlags::OUT | EventFlags::ONESHOT)
+                        let task = x.executor.get_current_task();
+                        x.epoll.modify_task(&self.fd, task, EventFlags::OUT | EventFlags::ONESHOT)
                     })?;
 
                     Poll::Pending

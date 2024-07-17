@@ -1,17 +1,16 @@
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::os::fd::{AsRawFd, OwnedFd};
-use rustix::event::epoll::{create, CreateFlags, EventData, EventFlags, EventVec, wait};
-use crate::context::CONTEXT;
-use crate::Result;
 
+use rustix::event::epoll::{create, CreateFlags, EventData, EventFlags, EventVec, wait};
+
+use crate::Result;
+use crate::waker::Task;
 
 pub(crate) struct Epoll {
     fd: OwnedFd,
-    // fd, task_id
-    epoll_queue: RefCell<HashMap<u64, u64>>,
-    // task_id
-    ready_queue: RefCell<HashSet<u64>>,
+    // fd, task
+    epoll_queue: RefCell<HashMap<u64, Task>>,
 }
 
 impl Epoll {
@@ -20,7 +19,6 @@ impl Epoll {
         return Ok(Epoll {
             fd: epoll_fd,
             epoll_queue: RefCell::from(HashMap::new()),
-            ready_queue: RefCell::from(HashSet::new()),
         });
     }
 
@@ -37,66 +35,58 @@ impl Epoll {
         wait(&self.fd, &mut event_list, -1)?;
 
         let mut epoll_queue = self.epoll_queue.borrow_mut();
-        let mut ready_queue = self.ready_queue.borrow_mut();
         for event in &event_list {
             let fd = event.data.u64();
 
-            if let Some(task_id) = epoll_queue.remove(&fd) {
-                ready_queue.insert(task_id);
-                CONTEXT.with(|x| {
-                    x.executor.mark_task_ready(task_id);
-                })
+            if let Some(task) = epoll_queue.remove(&fd) {
+                task.as_waker().wake();
             }
         }
 
         Ok(())
     }
 
-    pub(crate) fn is_ready(&self, task_id: u64) -> bool {
-        let map = self.ready_queue.borrow_mut();
-        return map.contains(&task_id);
-    }
-
-    pub(crate) fn add_task(&self, fd: &OwnedFd, task_id: u64, event_flags: EventFlags) -> Result<()> {
+    pub(crate) fn add_task(&self, fd: &OwnedFd, task: Task, event_flags: EventFlags) -> Result<()> {
         let raw_fd = fd.as_raw_fd() as u64;
         rustix::event::epoll::add(&self.fd, fd, EventData::new_u64(raw_fd), event_flags)?;
 
         let mut map = self.epoll_queue.borrow_mut();
 
         if map.contains_key(&raw_fd) {
-            return Err(Box::from(format!("Another task is waiting fd")))
+            return Err(Box::from(format!("Another task is waiting fd")));
         }
-        map.insert(raw_fd, task_id);
+        map.insert(raw_fd, task);
 
         Ok(())
     }
 
-    pub(crate) fn wait_task(&self, fd: &OwnedFd, task_id: u64) -> Result<()> {
+    pub(crate) fn wait_task(&self, fd: &OwnedFd, task: Task) -> Result<()> {
         let mut map = self.epoll_queue.borrow_mut();
         let fd = fd.as_raw_fd() as u64;
 
         if map.contains_key(&fd) {
-            return Err(Box::from(format!("Another task is waiting fd")))
+            return Err(Box::from(format!("Another task is waiting fd")));
         }
-        map.insert(fd, task_id);
+        map.insert(fd, task);
 
         Ok(())
     }
 
-    pub(crate) fn modify_task(&self, fd: &OwnedFd, task_id: u64, event_flags: EventFlags) -> Result<()> {
+    pub(crate) fn modify_task(&self, fd: &OwnedFd, task: Task, event_flags: EventFlags) -> Result<()> {
         let raw_fd = fd.as_raw_fd() as u64;
         rustix::event::epoll::modify(&self.fd, fd, EventData::new_u64(raw_fd), event_flags)?;
 
         let mut map = self.epoll_queue.borrow_mut();
 
         if map.contains_key(&raw_fd) {
-            return Err(Box::from(format!("Another task is waiting fd")))
+            return Err(Box::from(format!("Another task is waiting fd")));
         }
-        map.insert(raw_fd, task_id);
+        map.insert(raw_fd, task);
 
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub(crate) fn remove_task(&self, fd: &OwnedFd, task_id: u64) -> Result<()> {
         rustix::event::epoll::delete(&self.fd, fd)?;
 
